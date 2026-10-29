@@ -4,7 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.playtank.databasemigration.data.AppDatabase
+import com.playtank.databasemigration.data.AppDatabaseV2
 import com.playtank.databasemigration.migration.MIGRATION_1_2_FIXED
 import org.junit.Rule
 import org.junit.Test
@@ -16,7 +16,7 @@ class RoomMigrationTest {
     @get:Rule
     val helper: MigrationTestHelper = MigrationTestHelper(
         InstrumentationRegistry.getInstrumentation(),
-        AppDatabase::class.java,
+        AppDatabaseV2::class.java,
         emptyList(),
         FrameworkSQLiteOpenHelperFactory()
     )

@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,50 +31,58 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.playtank.databasemigration.data.AppDatabase
+import androidx.room.Room
+import com.playtank.databasemigration.data.AppDatabaseV1
+import com.playtank.databasemigration.data.AppDatabaseV2
 import com.playtank.databasemigration.data.UserEntity
+import com.playtank.databasemigration.data.UserEntityV1
+import com.playtank.databasemigration.migration.MIGRATION_1_2_FIXED
 import com.playtank.databasemigration.ui.theme.DatabaseMigrationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Sealed state for the three possible outcomes of a DB operation.
-private sealed interface DemoState {
-    data object Idle : DemoState
-    data object Loading : DemoState
-    data class Success(val users: List<UserEntity>) : DemoState
-    data class Crash(val error: Throwable) : DemoState
+private const val DB_NAME = "app_database"
+
+private enum class Step { NONE, SEEDED, CRASHED, FIXED }
+
+private sealed interface StepResult {
+    data object Idle : StepResult
+    data class Info(val message: String) : StepResult
+    data class Crash(val error: Throwable) : StepResult
+    data class Success(val users: List<UserEntity>) : StepResult
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val db = AppDatabase.getInstance(this)
         setContent {
             DatabaseMigrationTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MigrationDemoScreen(
-                        db = db,
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                Scaffold(modifier = Modifier.fillMaxSize()) { inner ->
+                    MigrationDemoScreen(modifier = Modifier.padding(inner))
                 }
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
-fun MigrationDemoScreen(
-    db: AppDatabase,
-    modifier: Modifier = Modifier
-) {
-    val scope = rememberCoroutineScope()
-    var state by remember { mutableStateOf<DemoState>(DemoState.Idle) }
+fun MigrationDemoScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope   = rememberCoroutineScope()
+
+    var step   by remember { mutableStateOf(Step.NONE) }
+    var result by remember { mutableStateOf<StepResult>(StepResult.Idle) }
 
     Column(
         modifier = modifier
@@ -81,142 +91,226 @@ fun MigrationDemoScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        // ── Header ───────────────────────────────────────────────────────────
         Text(
             text = "Room Migration Demo",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-        Spacer(Modifier.height(4.dp))
         Text(
-            text = "STEP 1 (crashDemo)  →  STEP 2 (fixedDemo)",
+            text = "Follow the three steps in order",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.secondary
         )
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(24.dp))
 
-        // ── Action button ────────────────────────────────────────────────────
-        Button(
-            onClick = {
-                state = DemoState.Loading
-                scope.launch {
-                    state = withContext(Dispatchers.IO) {
-                        runCatching {
-                            val dao = db.userDao()
-
-                            // Seed: Alice simulates a "v1 user" (no email at insert time).
-                            // Bob was added after the migration with a real email.
-                            dao.insert(UserEntity(id = 1, name = "Alice", email = ""))
-                            dao.insert(UserEntity(id = 2, name = "Bob",   email = "bob@example.com"))
-                            dao.getAll()
-                        }.fold(
-                            onSuccess = { DemoState.Success(it) },
-                            onFailure = { DemoState.Crash(it) }
-                        )
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state !is DemoState.Loading
+        // ── Step 1 ── Seed a real v1 database via Room (AppDatabaseV1) ──────
+        StepButton(
+            number   = "1",
+            label    = "Seed v1 Data",
+            subtitle = "Opens app_database at version 1 (id + name only) and inserts Alice.\nThis is the \"before\" state on an old user's device.",
+            enabled  = step == Step.NONE,
+            color    = MaterialTheme.colorScheme.secondary
         ) {
-            Text(if (state is DemoState.Loading) "Running…" else "Upgrade & Query Database")
+            scope.launch {
+                result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        // Delete any leftover file so the demo starts clean.
+                        context.deleteDatabase(DB_NAME)
+
+                        // Use AppDatabaseV1 (version=1, entity has only id+name).
+                        val db = Room.databaseBuilder(
+                            context, AppDatabaseV1::class.java, DB_NAME
+                        ).build()
+                        db.userDao().insert(UserEntityV1(id = 1, name = "Alice"))
+                        db.close()
+                    }.fold(
+                        onSuccess = {
+                            StepResult.Info(
+                                "✔ app_database created at v1.\n" +
+                                "Alice (id=1, name='Alice') inserted — no email column yet.\n\n" +
+                                "Now tap Step 2 to reproduce the crash."
+                            )
+                        },
+                        onFailure = { StepResult.Crash(it) }
+                    )
+                }
+                if (result is StepResult.Info) step = Step.SEEDED
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // ── Step 2 ── Open the v1 file with AppDatabaseV2 — no migration ────
+        StepButton(
+            number   = "2",
+            label    = "Open with Room v2 — BROKEN",
+            subtitle = "AppDatabaseV2 has version=2 and `email` in the entity, but no migration is registered.\nRoom cannot reconcile the schema jump → crash.",
+            enabled  = step == Step.SEEDED,
+            color    = MaterialTheme.colorScheme.error
+        ) {
+            scope.launch {
+                result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        // AppDatabaseV2 targets version 2 (entity has email).
+                        // No migration registered → Room throws on first access.
+                        val db = Room.databaseBuilder(
+                            context, AppDatabaseV2::class.java, DB_NAME
+                        ).build()
+                        // Trigger the actual DB open by accessing the DAO.
+                        db.userDao().getAll().also { db.close() }
+                    }.fold(
+                        onSuccess = { StepResult.Success(it) }, // unexpected path
+                        onFailure = { StepResult.Crash(it) }
+                    )
+                }
+                if (result is StepResult.Crash) step = Step.CRASHED
+                if (result is StepResult.Success) step = Step.FIXED
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // ── Step 3 ── Open with AppDatabaseV2 + MIGRATION_1_2_FIXED ─────────
+        StepButton(
+            number   = "3",
+            label    = "Open with Room v2 — FIXED",
+            subtitle = "Same AppDatabaseV2, but now MIGRATION_1_2_FIXED is registered.\nRoom runs ALTER TABLE … DEFAULT '' and Alice survives.",
+            enabled  = step == Step.CRASHED,
+            color    = Color(0xFF2E7D32)
+        ) {
+            scope.launch {
+                result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val db = Room.databaseBuilder(
+                            context, AppDatabaseV2::class.java, DB_NAME
+                        )
+                            .addMigrations(MIGRATION_1_2_FIXED)
+                            .build()
+                        db.userDao().getAll().also { db.close() }
+                    }.fold(
+                        onSuccess = { StepResult.Success(it) },
+                        onFailure = { StepResult.Crash(it) }
+                    )
+                }
+                if (result is StepResult.Success) step = Step.FIXED
+            }
         }
 
         Spacer(Modifier.height(20.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
 
-        // ── Result area ──────────────────────────────────────────────────────
-        when (val s = state) {
-
-            DemoState.Idle -> {
-                Text(
-                    text = "Tap the button to start the demo.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            DemoState.Loading -> {
-                Text("Accessing database…", style = MaterialTheme.typography.bodyMedium)
-            }
-
-            // ── STEP 1 outcome: crash panel ───────────────────────────────
-            is DemoState.Crash -> {
-                CrashPanel(error = s.error)
-            }
-
-            // ── STEP 2 outcome: success panel ─────────────────────────────
-            is DemoState.Success -> {
-                SuccessPanel(users = s.users)
-            }
+        when (val r = result) {
+            is StepResult.Idle    -> Unit
+            is StepResult.Info    -> InfoPanel(r.message)
+            is StepResult.Crash   -> CrashPanel(r.error)
+            is StepResult.Success -> SuccessPanel(r.users)
         }
     }
 }
 
-// ── Crash panel (shown in Step 1 / crashDemo) ────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Composables
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun StepButton(
+    number: String,
+    label: String,
+    subtitle: String,
+    enabled: Boolean,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick  = onClick,
+        enabled  = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        colors   = ButtonDefaults.buttonColors(containerColor = color)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Text(
+                text       = "Step $number — $label",
+                fontWeight = FontWeight.SemiBold,
+                fontSize   = 14.sp
+            )
+            Text(
+                text      = subtitle,
+                fontSize  = 11.sp,
+                lineHeight = 15.sp,
+                color     = Color.White.copy(alpha = 0.85f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun InfoPanel(message: String) {
+    Text(
+        text  = message,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
 
 @Composable
 private fun CrashPanel(error: Throwable) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "❌  CRASH – Schema mismatch detected",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.error,
+            text       = "CRASH – Schema mismatch detected",
+            style      = MaterialTheme.typography.titleMedium,
+            color      = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.Bold
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
-            text = "Room found that the entity's compiled schema (which includes " +
-                    "the new `email` column) does not match the on-disk schema, and " +
-                    "the version number is still 1 so no migration can run.",
+            text  = "AppDatabaseV2 compiled entity includes `email`, but the on-disk " +
+                    "file is v1 and has no email column. Version jumped 1→2 with no " +
+                    "migration path registered.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(12.dp))
-        // Show the raw exception message in a monospaced box – exactly what
-        // you'd see in Logcat before the app crashes.
+        Spacer(Modifier.height(10.dp))
         Text(
-            text = error.javaClass.simpleName + ":\n" + (error.message ?: "no message"),
+            text     = "${error.javaClass.simpleName}:\n${error.message ?: "no message"}",
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0xFF1E1E1E), shape = MaterialTheme.shapes.small)
                 .padding(12.dp),
-            color = Color(0xFFFF6B6B),
+            color      = Color(0xFFFF6B6B),
             fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            lineHeight = 16.sp
+            fontSize   = 11.sp,
+            lineHeight = 15.sp
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
-            text = "Fix: bump @Database(version = 2) and register MIGRATION_1_2_FIXED.\n" +
-                    "Then install the fixedDemo variant without clearing app data.",
+            text  = "Tap Step 3 to apply the fix.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary
         )
     }
 }
 
-// ── Success panel (shown in Step 2 / fixedDemo) ──────────────────────────────
-
 @Composable
 private fun SuccessPanel(users: List<UserEntity>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "✅  Migration successful – zero data loss",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color(0xFF2E7D32),
+            text       = "✅  Migration successful – zero data loss",
+            style      = MaterialTheme.typography.titleMedium,
+            color      = Color(0xFF2E7D32),
             fontWeight = FontWeight.Bold
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "${users.size} user(s) loaded. " +
-                    "Alice's row survived with email defaulted to \"\".",
+            text  = "${users.size} user(s) loaded. " +
+                    "Alice survived with email defaulted to \"\".",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(users) { user -> UserCard(user) }
+            items(users) { UserCard(it) }
         }
     }
 }
@@ -224,20 +318,20 @@ private fun SuccessPanel(users: List<UserEntity>) {
 @Composable
 private fun UserCard(user: UserEntity) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier  = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "id=${user.id}   name=${user.name}",
-                style = MaterialTheme.typography.titleSmall,
+                text       = "id=${user.id}   name=${user.name}",
+                style      = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = buildString {
+                text  = buildString {
                     append("email = \"${user.email}\"")
-                    if (user.email.isEmpty()) append("  ← DEFAULT '' (v1 row, no data lost)")
+                    if (user.email.isEmpty()) append("  ← DEFAULT '' (v1 row, backfilled)")
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (user.email.isEmpty())

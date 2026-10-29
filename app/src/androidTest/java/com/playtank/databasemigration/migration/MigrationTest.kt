@@ -8,7 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import com.playtank.databasemigration.data.AppDatabase
+import com.playtank.databasemigration.data.AppDatabaseV2
 import java.io.IOException
 
 private const val TEST_DB = "migration_test"
@@ -34,7 +34,7 @@ class MigrationTest {
     @get:Rule
     val helper = MigrationTestHelper(
         InstrumentationRegistry.getInstrumentation(),
-        AppDatabase::class.java,
+        AppDatabaseV2::class.java,
         emptyList(),
         FrameworkSQLiteOpenHelperFactory()
     )
