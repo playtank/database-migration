@@ -8,7 +8,6 @@ import com.playtank.databasemigration.data.AppDatabaseV1
 import com.playtank.databasemigration.data.AppDatabaseV2
 import com.playtank.databasemigration.data.UserEntityV1
 import com.playtank.databasemigration.data.UserEntityV2
-import com.playtank.databasemigration.migration.MIGRATION_1_2_FIXED
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,8 +64,7 @@ class MigrationViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch(Dispatchers.IO) {
             val outcome = runCatching {
-                 val db = Room.databaseBuilder(ctx, AppDatabaseV2::class.java, DB_NAME).build()
-
+                val db = Room.databaseBuilder(ctx, AppDatabaseV2::class.java, DB_NAME).build()
                 db.userDao().getAll().also { db.close() }
             }
 
