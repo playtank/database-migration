@@ -11,9 +11,6 @@ interface UserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(user: UserEntity)
 
-    @Query("SELECT * FROM users WHERE id = :id")
-    suspend fun findById(id: Int): UserEntity?
-
     @Query("SELECT * FROM users")
     suspend fun getAll(): List<UserEntity>
 }

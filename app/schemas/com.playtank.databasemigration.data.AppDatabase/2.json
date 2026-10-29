@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "c5d9f9f9f9f9f9f9f9f9f9f9f9f9f9f9",
+    "identityHash": "72f8ca4970f825a24f6972f91cd10845",
     "entities": [
       {
         "tableName": "users",
@@ -25,7 +25,7 @@
             "columnName": "email",
             "affinity": "TEXT",
             "notNull": true,
-            "defaultValue": ""
+            "defaultValue": "''"
           }
         ],
         "primaryKey": {
@@ -39,7 +39,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c5d9f9f9f9f9f9f9f9f9f9f9f9f9f9f9')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '72f8ca4970f825a24f6972f91cd10845')"
     ]
   }
 }

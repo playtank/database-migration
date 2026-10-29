@@ -20,6 +20,32 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // -------------------------------------------------------------------------
+    // Product flavors for the two-run emulator demo
+    //
+    //  crashDemo  – AppDatabase version = 1, entity already has `email`.
+    //               Room detects an identity-hash mismatch and throws
+    //               IllegalStateException on the first DB access.
+    //
+    //  fixedDemo  – AppDatabase version = 2, MIGRATION_1_2_FIXED registered.
+    //               Install this AFTER crashDemo (same DB file name) to watch
+    //               the migration run and data survive.
+    // -------------------------------------------------------------------------
+    flavorDimensions += "demo"
+    productFlavors {
+        create("crashDemo") {
+            dimension = "demo"
+            // No applicationIdSuffix – same package name as fixedDemo so both
+            // flavors share the same app data sandbox on the emulator.
+            // The crashDemo install writes v1 data; fixedDemo install migrates it.
+            versionNameSuffix = "-crash"
+        }
+        create("fixedDemo") {
+            dimension = "demo"
+            versionNameSuffix = "-fixed"
+        }
+    }
+
     buildTypes {
         release {
             optimization {
@@ -35,12 +61,13 @@ android {
         compose = true
     }
 
-    // Export Room schema JSON so MigrationTestHelper can validate against them
+    // Export Room schema JSON for the fixedDemo flavor only.
+    // crashDemo uses exportSchema = false so no path is needed for it.
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
 
-    // Make schemas available to MigrationTestHelper as assets during tests
+    // Make schemas available to MigrationTestHelper as test assets.
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
     }

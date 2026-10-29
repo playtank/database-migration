@@ -4,57 +4,38 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 // ---------------------------------------------------------------------------
-// Migration 1 → 2: adds the `email` column
+// Migration 1 → 2
 // ---------------------------------------------------------------------------
 
 /**
- * BROKEN migration: omits the DEFAULT clause.
+ * BROKEN migration – intentionally left here to document the failure mode.
  *
- * SQLite's ALTER TABLE … ADD COLUMN requires a DEFAULT value whenever the new
- * column is NOT NULL, because all existing rows must be given a value.
- * Without DEFAULT the statement is rejected with an error such as:
+ * `ALTER TABLE … ADD COLUMN email TEXT NOT NULL` has no DEFAULT clause.
+ * SQLite requires a DEFAULT value when a NOT NULL column is added to a table
+ * that already contains rows, because it cannot backfill existing rows with
+ * NULL.  The statement is rejected with:
  *   "Cannot add a NOT NULL column with default value NULL"
  *
- * This object is intentionally left here to be used in tests that VERIFY the
- * failure.  It must NOT be registered in AppDatabase.
+ * This constant must NOT be registered in AppDatabase.  It is only used in
+ * the negative instrumented test that proves the bug exists.
  */
 val MIGRATION_1_2_BROKEN = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // ❌ Bug: NOT NULL without a DEFAULT value – SQLite will throw.
-        db.execSQL(
-            "ALTER TABLE users ADD COLUMN email TEXT NOT NULL"
-        )
+        // ❌ Bug: NOT NULL without DEFAULT – throws on tables with existing rows.
+        db.execSQL("ALTER TABLE users ADD COLUMN email TEXT NOT NULL")
     }
 }
 
 /**
- * FIXED migration: adds the `email` column with a proper DEFAULT value.
+ * FIXED migration – the correct implementation.
  *
- * The DEFAULT clause satisfies SQLite's requirement that all existing rows
- * receive a valid non-NULL value when the column is first introduced.
+ * `DEFAULT ''` satisfies SQLite's requirement: all existing rows are
+ * backfilled automatically with an empty string, so the NOT NULL constraint
+ * is never violated.
  */
 val MIGRATION_1_2_FIXED = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // ✅ Fix: provide DEFAULT '' so existing rows are backfilled automatically.
-        db.execSQL(
-            "ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''"
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Migration 2 → 3: adds the `age` column
-// ---------------------------------------------------------------------------
-
-/**
- * Correct migration that adds an integer `age` column with a sensible default.
- * Demonstrates best-practice migration on top of the already-fixed v2 schema.
- */
-val MIGRATION_2_3 = object : Migration(2, 3) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        // ✅ DEFAULT 0 satisfies NOT NULL for existing rows.
-        db.execSQL(
-            "ALTER TABLE users ADD COLUMN age INTEGER NOT NULL DEFAULT 0"
-        )
+        // ✅ Fix: DEFAULT '' backfills existing rows with an empty string.
+        db.execSQL("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     }
 }
