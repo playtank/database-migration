@@ -6,11 +6,11 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 
 @Dao
-interface UserDao {
+interface UserDaoV2 {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(user: UserEntity)
+    suspend fun insert(user: UserEntityV2)
 
     @Query("SELECT * FROM users")
-    suspend fun getAll(): List<UserEntity>
+    suspend fun getAll(): List<UserEntityV2>
 }

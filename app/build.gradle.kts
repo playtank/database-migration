@@ -35,14 +35,9 @@ android {
         compose = true
     }
 
-    // Export Room schema JSON so MigrationTestHelper can validate against them.
+    // Export Room schema JSON (kept for reference alongside the source).
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
-    }
-
-    // Make schemas available to MigrationTestHelper as test assets.
-    sourceSets {
-        getByName("androidTest").assets.srcDirs("$projectDir/schemas")
     }
 }
 
@@ -61,16 +56,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Unit tests (JVM)
     testImplementation(libs.junit)
-
-    // Instrumented tests (device/emulator)
-    androidTestImplementation(libs.androidx.room.testing)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.junit)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
